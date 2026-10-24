@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **`gate.py` 恢复 PASS**（DSB-20261024-012）。自 2026-10-02 起 `gate.py` 持续报
+  `GATE: FAIL (2 violations)`，根因是两份 **Ximo 时代方案评审轮**的 FAIL verdict
+  （`XJ-20261002-001/002`，审的是卡 `DSB-20261002-001` 的方案轮，实现未开始）仍留在
+  门禁扫描目录里，而门禁不区分「卡的当前终局」与「卡的历史轮次」。该卡本体早已
+  CLOSED 且有终局 PASS（`XJ-20261002-003`）。本次把两份历史轮 FAIL **移档**（非删除）
+  至 `verdicts/legacy/`，门禁恢复 PASS；两份 PASS verdict 留在根目录，
+  `artifacts.json._absent_reason` 补处置注记。未改 `gate.py`（受保护资产）。
+
 ### 新增
 
 - **图片输入支持**（DSB-20261024-011）。`messages[].content` 从 `string` 放宽为

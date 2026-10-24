@@ -20,7 +20,7 @@
     "XJ-20261002-002",
     "XJ-20261002-003"
   ],
-  "_absent_reason": "Ximo-era verdicts from before this repo adopted the card protocol. Their reviewed file sets are not recoverable: the cards were renamed during the 2026-10-02 collision surgery and the review documents were never archived. Listing paths I cannot attest to would defeat the purpose of the check, so these ids are left to print a NOTICE.",
+  "_absent_reason": "Ximo-era verdicts from before this repo adopted the card protocol. Their reviewed file sets are not recoverable: the cards were renamed during the 2026-10-02 collision surgery and the review documents were never archived. Listing paths I cannot attest to would defeat the purpose of the check, so these ids are left to print a NOTICE. [2026-10-24 disposition, DSB-20261024-012] The two plan-round FAIL verdicts (XJ-20261002-001/002) were interim rounds for card DSB-20261002-001, whose final state is CLOSED with a PASS from XJ-20261002-003; they are archived (moved, not deleted) to verdicts/legacy/ so gate.py no longer scans them as current-chain verdicts. The two PASS verdicts (XJ-20261001-001/003) remain in verdicts/ root.",
   "DSB-20261002-006": [
     "src/transports/deepseek-web.ts",
     "src/core/types.ts",
