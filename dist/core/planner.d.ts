@@ -32,6 +32,17 @@ export interface TurnResult {
  * 保证 delta 至少包含触发本轮的那条 user 消息（N3）。
  */
 export declare function clampSentCount(stored: number, messages: OpenAIMessage[]): number;
+/**
+ * 只取 delta 中**最后一条 user 消息**携带的图片。
+ *
+ * v1 边界（sir 2026-10-24 拍板）：历史轮次的图片不重传。DeepSeek 网页会话自身已持有
+ * 那些附件，重传只会反复堆附件并撞上未知的上游上限，且没有任何正确性收益。
+ *
+ * 取 `delta` 而非全量 `messages`：`delta` 已经是「本轮真正要发出去的新内容」，
+ * 压缩（compaction）路径下 delta 会被替换成一条无图的摘要消息，于是自然返回
+ * `undefined` —— 摘要不看图，符合预期，不需要额外分支。
+ */
+export declare function currentTurnImages(delta: OpenAIMessage[]): string[] | undefined;
 export declare function runAgentTurn(opts: {
     messages: OpenAIMessage[];
     tools: ToolSpec[];

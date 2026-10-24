@@ -39,6 +39,14 @@ export interface GenerateRequest {
     prompt: string;
     thinking: boolean;
     timeoutMs?: number;
+    /**
+     * 本轮要上传到网页版输入区的图片**绝对路径**（可为空）。
+     *
+     * 语义边界：这是「随这条 prompt 一起发出去的附件」，不是历史附件池。
+     * 调用方（planner）只放当前轮 user 消息的图——历史图片网页会话自己已持有，
+     * 重传只会反复堆附件并撞上未知的上游上限。
+     */
+    images?: string[];
 }
 export interface GenerateChunk {
     reasoning?: string;

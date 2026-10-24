@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
-import type { Browser, Page } from 'puppeteer-core'
+import type { Browser, ElementHandle, Page } from 'puppeteer-core'
 import type { AppConfig } from '../config.js'
 import type { GenerateChunk, Health, Transport, Capabilities } from '../core/types.js'
 import { judgeLoginState, CHAT_INPUT_SELECTOR } from './login-state.js'
@@ -327,7 +327,29 @@ export function feedSse(cursor: SseCursor, full: string): { reasoning: string; c
 
 const SELECTORS_PATH = fileURLToPath(new URL('../../selectors.json', import.meta.url))
 
-let selectorsCache: { send: string; newChat: string } | null = null
+/**
+ * 附件相关选择器的内置默认值。
+ *
+ * 为什么给默认值而不是把新键设成必填：`selectors.json` 是**用户可改**的文件
+ * （DOM 改版时的唯一逃生口，README 明确让用户改它）。已发布的旧配置里没有
+ * `fileInput` / `imagePreview`，若设成必填会因为缺键直接崩在启动路径上——
+ * 这会把「加个可选功能」变成「旧用户升级即坏」。
+ * 2026-10-24 真机实测这两个选择器有效，缺键走默认即是最优路径。
+ */
+const DEFAULT_FILE_INPUT = 'input[type="file"]'
+const DEFAULT_IMAGE_PREVIEW = 'img[src^="blob:"]'
+
+/** 上传后等待附件预览出现的上限。实测 500ms 内完成，给足余量覆盖大图/慢网络。 */
+const UPLOAD_TIMEOUT_MS = 15000
+
+interface Selectors {
+  send: string
+  newChat: string
+  fileInput: string
+  imagePreview: string
+}
+
+let selectorsCache: Selectors | null = null
 /** 界面语言兜底：selectors.json 的 newChat 不命中时依次尝试（2026-09-30 实测中文界面按钮文案为「开启新对话」） */
 export const NEW_CHAT_FALLBACKS = ['::-p-text(开启新对话)', '::-p-text(New chat)']
 
@@ -336,9 +358,15 @@ export function textFromPTextSelector(sel: string): string | null {
   const m = sel.match(/^::-p-text\((.*)\)$/)
   return m ? m[1] : null
 }
-function readSelectors(): { send: string; newChat: string } {
+function readSelectors(): Selectors {
   if (!selectorsCache) {
-    selectorsCache = JSON.parse(fs.readFileSync(SELECTORS_PATH, 'utf-8')) as { send: string; newChat: string }
+    const raw = JSON.parse(fs.readFileSync(SELECTORS_PATH, 'utf-8')) as Partial<Selectors>
+    selectorsCache = {
+      ...(raw as Selectors),
+      // 新键缺省走内置默认（见 DEFAULT_FILE_INPUT 注释）
+      fileInput: raw.fileInput ?? DEFAULT_FILE_INPUT,
+      imagePreview: raw.imagePreview ?? DEFAULT_IMAGE_PREVIEW,
+    }
   }
   return selectorsCache
 }
@@ -620,6 +648,73 @@ let page: Page | null = null
     try { await starting } finally { starting = null }
   }
 
+  /**
+   * 把附件上传到网页版输入区，并等到前端确认收到。
+   *
+   * ## 为什么失败一律抛错、绝不静默降级
+   *
+   * 「上传失败就退化成只发文本」看起来友好，实际最危险：模型会在**没有图**的情况下
+   * 正常作答，产出读起来通顺但完全对不上图的答案。用户很难发现少了图，只会觉得模型
+   * 胡说。所以这里每条失败路径都抛 `upload_failed:`，让调用方拿到明确的 502。
+   *
+   * ## 为什么必须校验绝对路径
+   *
+   * puppeteer 官方文档 `ElementHandle.uploadFile()` 的 Remarks 明确写着：
+   * 「For locals script connecting to remote chrome environments, paths must be absolute」。
+   * 本 transport 正是用 `browserURL` 连**既有的** Chrome（不是自己 launch 的），
+   * 相对路径会被按**Chrome 进程的 cwd** 解析，静默传错文件或传不进去。
+   * 文档同时声明该方法**不校验文件是否存在**，所以存在性也得自己查。
+   *
+   * ## 完成信号
+   *
+   * 2026-10-24 真机实测：`uploadFile()` 后 `input.files` 被前端消费为 0，输入区出现
+   * `img[src^="blob:"]` 预览，500ms 内稳定。因此用「预览数量达到 before + N」作为
+   * 完成判据，比固定 sleep 可靠——慢网络/大图时不会误判为已完成。
+   */
+  async function uploadImages(images: string[], sel: Selectors): Promise<void> {
+    if (!page) throw new Error('upload_failed: bridge not started')
+    for (const p of images) {
+      if (!path.isAbsolute(p)) throw new Error(`upload_failed: 附件路径必须绝对: ${p}`)
+      if (!fs.existsSync(p)) throw new Error(`upload_failed: 附件不存在: ${p}`)
+    }
+    const handle = await page.$(sel.fileInput)
+    if (!handle) {
+      await dumpDom('no-file-input')
+      throw new Error(`upload_failed: 未找到附件输入框（selector: ${sel.fileInput}）`)
+    }
+    /**
+     * 选择器可能被用户改成命中非 input 的节点（selectors.json 是可改文件）。
+     * 直接 cast 会让 uploadFile 在运行时抛一个难以定位的 puppeteer 内部错误，
+     * 所以先做一次运行时判型，报错带 tagName 便于定位。
+     */
+    const tagName = await handle.evaluate((el: Element) => el.tagName.toLowerCase())
+    if (tagName !== 'input') {
+      await dumpDom('file-input-not-input')
+      throw new Error(`upload_failed: 选择器命中的不是 input，实际为 <${tagName}>（selector: ${sel.fileInput}）`)
+    }
+    const input = handle as unknown as ElementHandle<HTMLInputElement>
+    const countPreviews = (s: string) => page!.evaluate((q: string) => document.querySelectorAll(q).length, s)
+    const before = await countPreviews(sel.imagePreview)
+    try {
+      await input.uploadFile(...images)
+    } catch (e) {
+      throw new Error(`upload_failed: uploadFile 调用失败: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    try {
+      await page.waitForFunction(
+        (s: string, want: number) => document.querySelectorAll(s).length >= want,
+        { timeout: UPLOAD_TIMEOUT_MS, polling: 100 },
+        sel.imagePreview,
+        before + images.length,
+      )
+    } catch {
+      await dumpDom('upload-timeout')
+      throw new Error(
+        `upload_failed: ${UPLOAD_TIMEOUT_MS}ms 内未观察到 ${images.length} 个附件预览（selector: ${sel.imagePreview}）`,
+      )
+    }
+  }
+
   return {
     async start() { await startBridge() },
     async stop() {
@@ -644,6 +739,14 @@ let page: Page | null = null
         await page.bringToFront()
         const ta = await page.waitForSelector('textarea', { timeout: 15000 })
         await ta!.click()
+        /**
+         * 附件必须在 `insertText` **之前**就位：DeepSeek 的发送动作读取的是「输入区当前
+         * 状态」，先打字后贴附件会让两者在时间上竞争。上传失败在这里直接抛
+         * `upload_failed:`，绝不继续走「只发文本」——见 uploadImages 的注释。
+         */
+        if (req.images && req.images.length > 0) {
+          await uploadImages(req.images, sel)
+        }
         const preLen = await page.evaluate(() => (window as unknown as { __comp: unknown[] }).__comp.length)
         const cdp = await page.createCDPSession()
         await cdp.send('Input.insertText', { text: req.prompt })

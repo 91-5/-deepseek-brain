@@ -4,20 +4,51 @@ import type { AppConfig } from '../config.js'
 import { runAgentTurn } from '../core/planner.js'
 import type { OpenAIMessage, ToolSpec } from '../types.js'
 import type { Transport } from '../core/types.js'
+import { prepareContent, UnsupportedImageSourceError } from './multimodal.js'
 
-function toInternal(req: OpenAIChatRequest): { messages: OpenAIMessage[]; tools: ToolSpec[] } {
-  const messages: OpenAIMessage[] = req.messages.map(m => ({
-    role: m.role as OpenAIMessage['role'],
-    content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-    tool_call_id: m.tool_call_id,
-    tool_calls: m.tool_calls as OpenAIMessage['tool_calls'],
-  }))
-  const tools: ToolSpec[] = (req.tools ?? []).map(t => ({
-    name: t.function.name,
-    description: t.function.description,
-    parameters: t.function.parameters,
-  }))
-  return { messages, tools }
+interface InternalRequest {
+  messages: OpenAIMessage[]
+  tools: ToolSpec[]
+  /** 幂等清理本轮落盘的临时附件；调用方必须在 finally 里调用 */
+  cleanup: () => void
+}
+
+/**
+ * OpenAI 请求体 → 内部形态。
+ *
+ * 多模态处理交给 `multimodal.ts`：`content` 为 part 数组时拆成「纯文本 + 图片绝对路径」，
+ * 纯字符串路径行为与改造前完全一致（回归由 A5 守护）。
+ *
+ * **任何一步抛错都要先清理已写出的临时文件再抛**——否则前面几条消息的图片目录会变成
+ * 孤儿文件（A11 验收项盯的就是这个）。
+ */
+function toInternal(req: OpenAIChatRequest): InternalRequest {
+  const cleanups: Array<() => void> = []
+  const runCleanups = () => {
+    for (const c of cleanups) c()
+  }
+  try {
+    const messages: OpenAIMessage[] = req.messages.map(m => {
+      const prepared = prepareContent(m.content)
+      if (prepared.images.length > 0) cleanups.push(prepared.cleanup)
+      return {
+        role: m.role as OpenAIMessage['role'],
+        content: prepared.text,
+        ...(prepared.images.length > 0 ? { images: prepared.images } : {}),
+        tool_call_id: m.tool_call_id,
+        tool_calls: m.tool_calls as OpenAIMessage['tool_calls'],
+      }
+    })
+    const tools: ToolSpec[] = (req.tools ?? []).map(t => ({
+      name: t.function.name,
+      description: t.function.description,
+      parameters: t.function.parameters,
+    }))
+    return { messages, tools, cleanup: runCleanups }
+  } catch (e) {
+    runCleanups()
+    throw e
+  }
 }
 
 // transport 由 index.ts 注入（避免循环依赖）
@@ -69,8 +100,11 @@ export function createHttpServer(config: AppConfig): http.Server {
         res.end(JSON.stringify({ error: { message: 'invalid json' } }))
         return
       }
+      let cleanup: () => void = () => {}
       try {
-        const { messages, tools } = toInternal(parsed)
+        const internal = toInternal(parsed)
+        cleanup = internal.cleanup
+        const { messages, tools } = internal
         const result = await runAgentTurn({ messages, tools, transport: transportGetter(), config })
         const id = `chatcmpl-${Date.now().toString(36)}`
         const created = Math.floor(Date.now() / 1000)
@@ -107,8 +141,17 @@ export function createHttpServer(config: AppConfig): http.Server {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         if (res.headersSent) { res.end(); return } // 流式已发 200 后出错：断流比 ERR_HTTP_HEADERS_SENT 炸进程好（N2）
-        res.writeHead(502, { 'content-type': 'application/json' })
+        /**
+         * 状态码分流：
+         * - UnsupportedImageSourceError → **400**：客户端给的请求体本身不对（非 data URI 等），
+         *   重试同一请求不会有不同结果，用 502 会让客户端误判成服务抖动而盲目重试。
+         * - 其余 → **502**：浏览器/上游失败（沿用改造前行为，零回归）。
+         */
+        const status = e instanceof UnsupportedImageSourceError ? 400 : 502
+        res.writeHead(status, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: { message: msg } }))
+      } finally {
+        cleanup()
       }
     })
   })

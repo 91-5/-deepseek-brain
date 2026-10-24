@@ -1,4 +1,6 @@
 {
   "send": "div.ds-button--primary.ds-button--filled.ds-button--circle[role=\"button\"]",
-  "newChat": "::-p-text(开启新对话)"
+  "newChat": "::-p-text(开启新对话)",
+  "fileInput": "input[type=\"file\"]",
+  "imagePreview": "img[src^=\"blob:\"]"
 }

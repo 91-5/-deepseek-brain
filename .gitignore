@@ -4,3 +4,8 @@ logs/
 .sessions.json
 tmp/
 *.tgz
+# deepfreeze 快照设施（仅本地回滚用，永不入库）
+.freeze/
+.freeze-snap/
+**/.freeze/
+**/.freeze-snap/

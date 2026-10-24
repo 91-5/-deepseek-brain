@@ -138,6 +138,47 @@ shim 是标准的 OpenAI 兼容端点，所有参数都是：`base_url = http://
 
 监听地址固定 `127.0.0.1`，**没有鉴权**——它假设自己只对本机可见。别自己绑到 `0.0.0.0`。
 
+### 图片输入（v0.2.2+）
+
+`messages[].content` 除字符串外，也接受 OpenAI 的多模态 part 数组。图片会被落盘成临时文件，
+再通过 puppeteer 上传到网页版的隐藏 `input[type="file"]`，然后才发送文本。
+
+**支持的 content 形态**（三种方言都收，依据是 LiteLLM 的
+`_IMAGE_CONTENT_PART_TYPES = {image_url, input_image, image}`）：
+
+```jsonc
+// 1) Chat Completions 风格；image_url 既可是对象也可是裸字符串
+{ "type": "image_url", "image_url": { "url": "data:image/png;base64,...", "detail": "auto" } }
+{ "type": "image_url", "image_url": "data:image/png;base64,..." }
+
+// 2) Responses API 风格
+{ "type": "input_image", "image_url": "data:image/png;base64,..." }
+
+// 3) Anthropic 风格
+{ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "..." } }
+```
+
+**边界（明确不承诺）**
+
+| 项 | 行为 |
+| --- | --- |
+| 图片源 | **只支持 `data:` URI**。`http(s)` 远程 URL 直接 400（`upload_failed:` 前缀），shim 不发任何外部请求——刻意不开 SSRF 面。 |
+| 历史图片 | **只上传当前轮 user 消息的图**。历史轮次的附件不重传：网页会话自身已持有。 |
+| 失败语义 | 上传失败**一律报错，绝不静默降级成纯文本**——那会让模型在没图的情况下正常作答，产出通顺但完全错位的答案。 |
+| `detail` 字段 | 接受但忽略：网页版无法表达「低/高分辨率」语义。 |
+| 状态码 | 请求体本身不合法（非 data URI 等）→ **400**；浏览器/上游失败 → **502**。 |
+
+临时文件落在 `%TEMP%\deepseek-brain-uploads\<随机目录>\`，每轮请求结束（成功或失败）即删除。
+
+**实测记录（2026-10-24，真机 Chrome + 真 DeepSeek 会话）**：单图、2 图、3 图同轮上传
+均成功，且模型都正确读出了图内文字（`DSB-7419` / `ALPHA-22` / `OMEGA-33`）。
+**未继续上探**单轮图片数量上限——上游没有可引用的官方数值，本文档不编造，
+只记录实际测过的范围（≥3 张）。需要更多图时请自行验证。
+
+新增两个可改选择器（`selectors.json`）：`fileInput`（默认 `input[type="file"]`）、
+`imagePreview`（默认 `img[src^="blob:"]`，用于判定上传完成）。**缺这两个键会走内置默认**，
+老配置文件不用改。
+
 ---
 
 ## 配置

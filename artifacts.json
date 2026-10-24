@@ -55,5 +55,19 @@
     "CHANGELOG.md",
     "README.md",
     "package.json"
+  ],
+  "DSB-20261024-011": [
+    "src/server/openai-types.ts",
+    "src/server/multimodal.ts",
+    "src/server/http.ts",
+    "src/types.ts",
+    "src/core/types.ts",
+    "src/core/planner.ts",
+    "src/transports/deepseek-web.ts",
+    "selectors.json",
+    "tests/openai-multimodal.test.ts",
+    "tests/deepseek-web-upload.test.ts",
+    "README.md",
+    "CHANGELOG.md"
   ]
 }

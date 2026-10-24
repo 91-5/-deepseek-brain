@@ -2,6 +2,23 @@
 
 本文件记录 deepseek-brain 的用户可见变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **图片输入支持**（DSB-20261024-011）。`messages[].content` 从 `string` 放宽为
+  `string | ContentPart[]`，接受 OpenAI 三种多模态方言（`image_url` / `input_image` /
+  `image`，依据 LiteLLM 的 `_IMAGE_CONTENT_PART_TYPES`）；其中 `image_url` 同时接受
+  **对象与裸字符串**两种形态。图片解码后落盘为**绝对路径**临时文件（puppeteer 官方文档
+  明确「连远端 Chrome 时 paths must be absolute」），再用 `uploadFile()` 上传到网页版的
+  隐藏 `input[type="file"]`，等到输入区出现 `img[src^="blob:"]` 预览后才发送文本。
+  新增 `src/server/multimodal.ts`；`selectors.json` 增 `fileInput` / `imagePreview`
+  两个**可选**键，缺键走内置默认，老配置无需改动。
+
+  **边界**：只支持 `data:` URI（远程 `http(s)` 明确 400，不发外部请求）；只上传当前轮
+  user 消息的图片（历史附件不重传）；上传失败**一律抛 `upload_failed:` 并返回 502，
+  绝不静默降级成纯文本**——那会让模型在没图时正常作答，产出通顺但完全错位的答案。
+
 ## [0.2.1] - 2026-10-04
 
 ### 修复
