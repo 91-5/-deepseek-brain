@@ -1,0 +1,42 @@
+{
+  "id": "DSB-20261024-012",
+  "commit": "b80b5e1",
+  "artifact": [
+    "verdicts/legacy/XJ-20261002-001.verdict.json",
+    "verdicts/legacy/XJ-20261002-002.verdict.json",
+    "artifacts.json",
+    "CHANGELOG.md",
+    ".tasks/DSB-20261024-012.md"
+  ],
+  "verdict": "FAIL",
+  "blockers": 1,
+  "independent": true,
+  "verifier": "agnes-code",
+  "ts": "2026-10-24T12:42:00Z",
+  "evidence": [
+    "A1 post-signing closure FAILED: after writing verdicts/DSB-20261024-012.verdict.json, python tools/gate.py --verdict-dir verdicts --artifact-map artifacts.json -> GATE: FAIL (6 violations across 9 checked); all 6 = [STALE_VERDICT] on CHANGELOG.md (mtime 2026-10-24T12:28:48Z outrunning DSB-20261002-006/007/008/009/010 + DSB-20261024-011 ts values); ZERO VERDICT_FAIL lines (the two XJ plan-round FAILs are correctly out of the scan surface after the move — that part of the card worked)",
+    "Root cause verified in gate.py source: _successor_candidates iterates `for vid in artifact_map` (only artifacts.json top-level keys), and _superseded_by requires `rel in (artifact_map.get(other) or [])`. DSB-20261024-012 is NOT a top-level key in artifacts.json (the card appended its disposition to the existing _absent_reason string only), so its PASS verdict cannot retire the 6 CHANGELOG STALE findings; DSB-20261024-011 also cannot (ts 07:52 < mtime 12:28). Hence the card's A1 sequence-declaration prediction 'signing retires them -> GATE: PASS' is empirically false",
+    "Verified minimal remedy (probe, no author file touched): a temp artifacts map with 'DSB-20261024-012': ['CHANGELOG.md','artifacts.json'] added -> gate.py --artifact-map probe -> GATE: PASS (9 checked). One-line fix + re-sign (ts must beat the refreshed artifacts.json mtime, per 004 precedent) closes the loop",
+    "A2 git status --porcelain -> only pre-existing untracked scripts/watchdog.{cmd,ps1}; all card deliverables in commit b80b5e1",
+    "A3 git diff -M caedb44..b80b5e1 --summary -> 2x 'rename verdicts/{ => legacy}/... (100%)' — byte-identical move-not-wash-history",
+    "A4 verdicts/ root holds 8 verdicts including XJ-20261001-001 + XJ-20261002-003 (both PASS stay in root); verdicts/legacy holds exactly the 2 archived FAIL",
+    "A5 lint_cards.py -> LINT: PASS (8 warnings), exit 0; this card contributes VERDICT_WITHOUT_REVIEW x1 (retires on signing)",
+    "A6 trusted (card diff contains zero code files; 240 green established on caedb44 by the 011 chain)",
+    "A7 npm run build + git diff --exit-code -- dist -> both exit 0",
+    "Constraint 1: git show b80b5e1 --stat = card + CHANGELOG + artifacts.json + 2 renames; zero gate.py / agent-covenant changes",
+    "Constraint 5: _absent_reason original English text preserved verbatim, only the [2026-10-24 disposition] facts-only paragraph appended"
+  ],
+  "blocker_details": [
+    "Blocker 1: The card's headline end-state 'GATE: PASS' is not achieved post-signing — gate.py still FAILs on 6 CHANGELOG STALE findings because DSB-20261024-012 was not registered as a top-level artifacts.json key, so its verdict cannot act as a freshness successor. Card's own A1 wording ('PASS 判定以本卡 verdict 签署后复跑为准') makes this a failed acceptance. Fix: add 'DSB-20261024-012': ['CHANGELOG.md','artifacts.json'] to artifacts.json (verified via probe map -> GATE: PASS), commit, and re-sign the 012 verdict with a fresh ts."
+  ],
+  "review_q_rulings": [
+    "Q1: approve verdicts/legacy/ (aligned with .tasks/legacy/ semantics)",
+    "Q2: agree a B2/B3 pointer line should go to card 001, but as a follow-up micro-card/commit, not this card (avoids new mtime drift after signing)",
+    "Q3: correct — _absent_reason records facts only, gate status stays in Acceptance",
+    "Q4: A6 trusted + A7 re-run as substitute (zero code files in diff)"
+  ],
+  "notes": [
+    "What worked in this card: XJ VERDICT_FAIL removal (zero VERDICT_FAIL lines post-move), PASS-verdicts-kept-in-root, 100% renames, gate.py untouched, lint green, dist clean. The single blocker is the missing artifacts.json registration, which the probe proves is a one-line fix.",
+    "FAIL verdicts do not block the gate scan; they are recorded. The 6 CHANGELOG STALE findings will remain until the author lands the fix + re-sign."
+  ]
+}

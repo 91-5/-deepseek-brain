@@ -69,5 +69,9 @@
     "tests/deepseek-web-upload.test.ts",
     "README.md",
     "CHANGELOG.md"
+  ],
+  "DSB-20261024-012": [
+    "CHANGELOG.md",
+    "artifacts.json"
   ]
 }
