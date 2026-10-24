@@ -1,0 +1,56 @@
+{
+  "id": "DSB-20261024-011",
+  "commit": "421ebe9",
+  "artifact": [
+    "src/server/openai-types.ts",
+    "src/server/multimodal.ts",
+    "src/server/http.ts",
+    "src/types.ts",
+    "src/core/types.ts",
+    "src/core/planner.ts",
+    "src/transports/deepseek-web.ts",
+    "selectors.json",
+    "tests/openai-multimodal.test.ts",
+    "tests/deepseek-web-upload.test.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "artifacts.json",
+    ".tasks/DSB-20261024-011.md"
+  ],
+  "verdict": "PASS",
+  "blockers": 0,
+  "conditions": [
+    "Review Q1 (400 vs 502): keep the author's split — UnsupportedImageSourceError -> 400 (bad request body, no point retrying), all upload/browser failures -> 502. Advisory: no change required.",
+    "Review Q2 (tmp location): approve os.tmpdir(). Diagnostic evidence is not lost because uploadImages dumpDom's a DOM snapshot to logs/ on each failure path before throwing, so removing the temp file does not remove the incident scene. No change required.",
+    "Review Q3 (three dialects): keep image_url + input_image + image. Dropping one dialect risks silent base64-garbage degradation for that client class, which is the exact failure mode this card exists to prevent. Maintenance cost of the Anthropic 'image' branch is ~6 lines + covered tests. Optional future slimming card if OpenCode is confirmed to only ever send image_url.",
+    "Review Q4 (multi-image cap): approve pass-through. Do not invent a shim-side hard cap while the upstream limit is unknown; A9 already recorded the tested floor (>=3 images) in README honestly. No change required.",
+    "Review Q5 (detail field): silent ignore is acceptable today; optionally add one console.debug when detail is set and != 'auto' to make the drop observable. Non-blocking."
+  ],
+  "independent": true,
+  "verifier": "agnes-code",
+  "ts": "2026-10-24T07:52:00Z",
+  "evidence": [
+    "A1 npm run typecheck -> exit 0, no diagnostics",
+    "A2 npm run typecheck:test -> exit 0, no diagnostics",
+    "A3 npm test -> exit 0; Test Files 26 passed | 1 skipped (27); Tests 240 passed | 1 skipped (241), matching card record (213->240, +27 new)",
+    "A4 npm run build + git diff --exit-code -- dist -> build exit 0, dist diff exit 0 (dist content-level in sync with source, no drift)",
+    "A5 pure-text regression: prepareContent('hello') unit asserts text==='hello', images===[], cleanup idempotent; existing server-http + core-planner suites green at HEAD",
+    "A6 npx vitest run tests/openai-multimodal.test.ts -> 21 tests green (3 dialects + bare-string image_url + data URI decode + invalid/remote URL reject + tmpfile absolute-path + no-orphan cleanup)",
+    "A7 node -e path.isAbsolute(os.tmpdir()) -> exit 0; single-test asserts temp paths isAbsolute(); transport rejects relative path (uploadFile zero calls, error contains '绝对')",
+    "A8 npx vitest run tests/deepseek-web-upload.test.ts -> 6 tests green: uploadFile precedes Input.insertText; pure-text zero uploadFile; uploadFile throw -> insertText/clickSend zero calls",
+    "A9 real-machine test -> NOT re-run by reviewer (requires live Chrome + real DeepSeek session, out of sandbox boundary; treated like 010 card A16): author's record = single/2/3-image uploads all succeeded, model read DSB-7419 / ALPHA-22 / OMEGA-33 correctly; cap honestly recorded as '>=3 tested, not probed beyond'",
+    "A10 python D:\\15812\\projects\\agent-covenant\\tools\\lint_cards.py --dir .tasks --verdict-dir verdicts -> LINT: PASS (7 warnings), exit 0; this card's 2 warnings (VERDICT_WITHOUT_REVIEW + UNMAPPED_CLAIM_SURFACE) retire on this verdict; remaining 5 are historical debt",
+    "A11 dir %TEMP%\\deepseek-brain-uploads -> 0 subdirs; git status --porcelain shows only scripts/watchdog.{cmd,ps1} untracked (declared out-of-scope by Constraint 11), no deepseek-brain-uploads leak into git",
+    "A12 CHANGELOG.md [Unreleased] section contains the 图片输入支持 (DSB-20261024-011) entry with accurate scope (3 dialects / bare-string / data-URI-only / current-turn-only / upload_failed no-silent-degrade / 400-502 split)",
+    "Constraint 3 (no silent degrade): verified by code read — the images branch in generate() sits strictly before cdp.send('Input.insertText') and clickSend; all 6 uploadImages failure paths throw upload_failed: before insertText can run; A8 machine-locks 'uploadFile throw -> insertText/click zero calls'",
+    "Constraint 2 (temp cleanup 3 paths): http.ts toInternal success -> bound cleanup runs in request finally (covers uploadImages throw / insertText throw / clickSend timeout); toInternal internal catch{runCleanups();throw} cleans 1..N-1 already-written temp dirs on mid-prepareContent failure. Two layers are complementary, no overlap, no gap",
+    "dist/ content-level guard: build + git diff --exit-code -- dist exits 0 (A4), no source-without-rebuild drift",
+    "附带收尾 1: .tasks/{ => legacy}/DSB-20261004-010.md rename (96% similarity) + REVIEW rename (100%); 010 Status OPEN->CLOSED with only a status-field + explanatory quote, no Acceptance/verdict content touched; verdicts/DSB-20261004-010.verdict.json unchanged; spurious OWNED_FILES_CONFLICT released",
+    "附带收尾 2: .gitignore adds .freeze/ .freeze-snap/ **/.freeze/ **/.freeze-snap/ (4 new lines, no existing line modified)"
+  ],
+  "notes": [
+    "HEAD snapshot at review time = 421ebe9 (matches git rev-parse HEAD at session start; matches card 被审 commit)",
+    "A9 real-machine test and A5 bidirectional git-stash run are both recorded on the author's side; reviewer re-ran only the forward direction. This is consistent with 010 card precedent (A16) — do not treat the missing live re-run as a gap, it is the documented review-sandbox boundary",
+    "5 Review-question rulings are captured in ## Conditions of the review file and mirrored as advisory conditions here; none are blocking"
+  ]
+}
